@@ -32,19 +32,19 @@
 body {
     background-color: #222;
     padding: 8px;
-    vertical-align: middle;
-    text-align: center;
     font-family: Helvetica, Arial, sans-serif;
 }
 .board {
     position: relative;
-    display: inline-block;
+    display: block;
     margin: 0 auto;
+    width: fit-content;
 }
 .board > div {
     position: absolute;
     cursor: pointer;
     border-radius: 20%;
+    text-align: center;
     transition-property: transform, top;
     transition-delay: 0ms, var(--fading-duration);
     transition-duration: var(--fading-duration), 0ms;
@@ -80,10 +80,10 @@ body {
             switch (name) {
                 case "board":
                     this._board = newValue.split("\n").map((row => row.split("").map(letter => { return { letter }; })));
-                    console.debug(this._board);
                     this._width = this._board[0].length;
                     this._height = this._board.length;
-                    this._body.style.height = `${this._height * 44 + 44}px`;
+                    // this._body.style.width = `${this._width * (CELL_SIZE + CELL_GAP)}px`;
+                    this._body.style.height = `${this._height * (CELL_SIZE + CELL_GAP) + CELL_SIZE}px`;
                     this.build();
                     this.moves = [];
                     break;
@@ -146,6 +146,7 @@ body {
                     }
                 }
             }
+            this._boardEl.querySelectorAll(".fade").forEach(cell => cell.remove());
         }
 
         removeLetter(row, col) {
