@@ -82,7 +82,6 @@ body {
                     this._board = newValue.split("\n").map((row => row.split("").map(letter => { return { letter }; })));
                     this._width = this._board[0].length;
                     this._height = this._board.length;
-                    // this._body.style.width = `${this._width * (CELL_SIZE + CELL_GAP)}px`;
                     this._body.style.height = `${this._height * (CELL_SIZE + CELL_GAP) + CELL_SIZE}px`;
                     this.build();
                     this.moves = [];
@@ -106,13 +105,12 @@ body {
                     div.addEventListener("click", e => {
                         const row = parseInt(e.target.getAttribute("data-row"));
                         const col = parseInt(e.target.getAttribute("data-col"));
-                        console.debug(row, col);
                         this.moves.push({ row, col });
                         this.removeLetter(row, col);
                         setTimeout(() => {
                             this.applyGravity();
                             if (this.boardIsClear()) {
-                                console.debug(this.moves);
+                                console.info(this.moves);
                                 alert(`Geschafft mit ${this.moves.length} Zügen.`);
                             }
                         }, parseInt(this.getAttribute("fading-duration-ms") || FADING_DURATION_MS));
