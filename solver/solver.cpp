@@ -138,12 +138,10 @@ struct ABCD
 
     void remove_letter(int row, int col)
     {
-        std::vector<cell_t> original_state;
         char letter = board.at(row).at(col);
         std::function<void(int, int)> remove = [&](int r, int c) {
             if (board.at(r).at(c) == letter)
             {
-                original_state.emplace_back(cell_t{r, c, letter});
                 board[r][c] = EMPTY;
                 if (r > 0)
                     remove(r - 1, c);
@@ -161,6 +159,20 @@ struct ABCD
 
     static void solve_dfs(ABCD const& abcd, int move_count = 0)
     {
+        auto display_stats = [&]() {
+            std::cout << "\r" << num_tries << " tries; ";
+            for (auto const& move : abcd.moves)
+            {
+                std::cout << move.row << ',' << move.col << ' ';
+            }
+            std::cout << "\x1b[K" << std::flush;
+        };
+        if (move_count >= min_move_count)
+        {
+            if (++num_tries % 125'000 == 0)
+                display_stats();
+            return;
+        }
         if (abcd.is_clear())
         {
             ++num_tries;
@@ -177,13 +189,7 @@ struct ABCD
             }
             else if (num_tries % 125'000 == 0)
             {
-                std::cout << "\r" << num_tries << " tries; ";
-                for (auto const& move : abcd.moves)
-                {
-                    std::cout << move.row << ',' << move.col << ' ';
-                }
-
-                std::cout << "\x1b[K" << std::flush;
+                display_stats();
             }
             return;
         }
