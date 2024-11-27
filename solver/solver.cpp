@@ -223,15 +223,11 @@ void display_result(moves_t const& moves)
 
 int main()
 {
-    std::string const board_data = "AAACDCB\n"
-                                   "DCABAAB\n"
-                                   "DCCBCCB\n"
-                                   "BAACBCB\n"
-                                   "BABDDBC\n"
-                                   "BDBBBDC\n"
-                                   "BCCBAAB\n"
-                                   "ACACDAC\n"
-                                   "ABAAAAA\n";
+    std::string board_data;
+    for (std::string line; std::getline(std::cin, line);) {
+        board_data.append(line);
+        board_data.append("\n");
+    }
     std::cout.imbue(std::locale(std::locale::classic(), new thsds_numpunct));
     ABCD abcd(board_data);
     abcd.result_callback = display_result;
