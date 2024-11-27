@@ -110,8 +110,9 @@ body {
                         setTimeout(() => {
                             this.applyGravity();
                             if (this.boardIsClear()) {
-                                console.info(this.moves);
-                                alert(`Geschafft mit ${this.moves.length} Zügen.`);
+                                const moves = this.moves.map(coords => `${coords.row},${coords.col}`).join(" ");
+                                console.info(moves);
+                                alert(`Geschafft mit ${this.moves.length} Zügen: ${moves}`);
                             }
                         }, parseInt(this.getAttribute("fading-duration-ms") || FADING_DURATION_MS));
                     });
@@ -166,6 +167,28 @@ body {
             };
             remove(row, col);
         }
+
+        click(row, col) {
+            this.removeLetter(row, col);
+            setTimeout(() => {
+                this.applyGravity();
+            }, parseInt(this.getAttribute("fading-duration-ms") || FADING_DURATION_MS));
+        }
+
+    }
+
+    // best moves so far: 8,0 8,0 8,0 8,1 8,1 8,1 8,1 8,2 5,3 5,4 6,4 7,2 7,4 7,6
+    function play(seq) {
+        const moves = seq.split(" ").map(coords => coords.split(",").map(Number));
+        let t0 = performance.now();
+        const autoplay = _t => {
+            if (moves.length > 0 && performance.now() > t0 + 1200) {
+                el.game.click(...moves.shift());
+                t0 = performance.now()
+            }
+            requestAnimationFrame(autoplay);
+        }
+        requestAnimationFrame(autoplay);
     }
 
     function main() {
@@ -181,5 +204,10 @@ BCCBAAB
 ACACDAC
 ABAAAAA`);
     }
+
     window.addEventListener("load", main);
+    window.exports = {
+        play
+    };
+
 })(window);
