@@ -10,11 +10,15 @@ all: $(EXE)
 debug: CXXFLAGS += -O0 -DDEBUG -g -pedantic
 debug: $(EXE)
 
-release: CXXFLAGS += -O3 -DNDEBUG
+release: CXXFLAGS += -Ofast -DNDEBUG
 release: $(EXE)
+release: strip
 
 $(EXE): $(SRC) Makefile
 	$(CC) $(CXXFLAGS) $(SRC) -o $(EXE)
+
+strip: $(EXE)
+	strip $(EXE)
 
 clean:
 	rm -f $(EXE)
