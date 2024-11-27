@@ -1,6 +1,6 @@
 .PHONY: all clean debug release remake
 
-EXE=solver
+EXE=solve
 SRC=solver.cpp
 CC=g++
 CXXFLAGS=-std=c++17 -Wall
@@ -20,3 +20,4 @@ clean:
 	rm -f $(EXE)
 
 remake: clean all
+
