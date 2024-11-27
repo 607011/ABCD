@@ -146,11 +146,11 @@ struct ABCD
                 board[r][c] = EMPTY;
                 if (r > 0)
                     remove(r - 1, c);
-                if (r < board.size() - 1)
+                if (r < (int)board.size() - 1)
                     remove(r + 1, c);
                 if (c > 0)
                     remove(r, c - 1);
-                if (c < board[0].size() - 1)
+                if (c < (int)board[0].size() - 1)
                     remove(r, c + 1);
             }
         };
@@ -196,7 +196,7 @@ struct ABCD
         }
         for (int row = abcd.board.size() - 1; row >= 0; --row)
         {
-            for (int col = 0; col < abcd.board.at(row).size(); ++col)
+            for (int col = 0; col < (int)abcd.board.at(row).size(); ++col)
             {
                 if (abcd.board_empty_at(row, col))
                     continue;
@@ -243,7 +243,7 @@ struct ABCD
             }
             for (int row = current_state.board.size() - 1; row >= 0; --row)
             {
-                for (int col = 0; col < current_state.board[row].size(); ++col)
+                for (int col = 0; col < (int)current_state.board[row].size(); ++col)
                 {
                     if (!current_state.board_empty_at(row, col))
                     {
