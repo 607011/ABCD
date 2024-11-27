@@ -2,6 +2,7 @@
 #include <iostream>
 #include <limits>
 #include <locale>
+#include <queue>
 #include <string>
 #include <vector>
 
