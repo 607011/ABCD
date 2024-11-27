@@ -119,19 +119,18 @@ struct ABCD
     {
         for (int col = 0; col < (int)board.front().size(); ++col)
         {
-            int index = (int)board.size() - 1;
+            int empty_count = 0;
             for (int row = (int)board.size() - 1; row >= 0; --row)
             {
-                if (board[row][col] != EMPTY)
+                if (board[row][col] == EMPTY)
                 {
-                    board[index][col] = board[row][col];
-                    --index;
+                    ++empty_count;
                 }
-            }
-            while (index >= 0)
-            {
-                board[index][col] = EMPTY;
-                --index;
+                else if (empty_count > 0)
+                {
+                    board[row + empty_count][col] = board[row][col];
+                    board[row][col] = EMPTY;
+                }
             }
         }
     }

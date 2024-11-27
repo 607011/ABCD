@@ -1,20 +1,38 @@
+import("./mt.js");
+
 (function (window) {
     "use strict";
+
     let el = {};
 
     const EMPTY = ".";
     const FADING_DURATION_MS = 200;
     const CELL_GAP = 2;
     const CELL_SIZE = 44;
+    const LETTERS = ["A", "B", "C", "D"];
+    const DEFAULT_WIDTH = 7;
+    const DEFAULT_HEIGHT = 9;
 
     class ABCDGame extends HTMLElement {
-        static observedAttributes = ["board"];
+        static observedAttributes = ["board", "seed", "width", "height"];
         constructor() {
             super();
             this._internals = this.attachInternals();
             this._board = null;
             this._style = null;
             this.moves = [];
+            this._rng = new MersenneTwister;
+            this._seed = 1;
+            this._width = 0;
+            this._height = 0;
+        }
+        /**
+         * @param {number} newSeed
+         */
+        set seed(newSeed) {
+            this._seed = newSeed;
+            this.generate();
+            this.reset();
         }
         connectedCallback() {
             this._shadow = this.attachShadow({ mode: "open" });
@@ -53,6 +71,7 @@ body {
 .board > div.A {
     background-color: gold;
     border-radius: 25%;
+    transform: scale(0.98);
 }
 .board > div.B {
     background-color: steelblue;
@@ -60,11 +79,12 @@ body {
 }
 .board > div.C {
     background-color: orangered;
-    width: calc(var(--cell-size) * 0.8);
+    width: calc(var(--cell-size) * 0.82);
     transform: skewX(-10deg) translateX(calc(var(--cell-size) * 0.1));
 }
 .board > div.D {
     background-color: olivedrab;
+    transform: scale(0.95);
 }
 .board > div.fade {
     transform: scale(0);
@@ -76,22 +96,51 @@ body {
             this._boardEl.className = "board";
             this._body.appendChild(this._boardEl);
             this._shadow.appendChild(this._body);
-
+            this.generate();
+            this.reset();
         }
         attributeChangedCallback(name, _oldValue, newValue) {
             switch (name) {
+                case "seed":
+                    this._seed = parseInt(newValue);
+                    if (!isNaN(this._seed)) {
+                        this.generate();
+                        this.reset();
+                    }
+                    break;
+                case "width":
+                    this._width = parseInt(newValue);
+                    if (!isNaN(this._width)) {
+                        this.generate();
+                        this.reset();
+                    }
+                    break;
+                case "height":
+                    this._height = parseInt(newValue);
+                    if (!isNaN(this._height)) {
+                        this.generate();
+                        this.reset();
+                    }
+                    break;
                 case "board":
                     this._board = newValue.split("\n").map((row => row.split("").map(letter => { return { letter }; })));
                     this._width = this._board[0].length;
                     this._height = this._board.length;
-                    this.build();
-                    this.moves = [];
+                    this.reset();
                     break;
-                default: break;
+                default:
+                    break;
             }
         }
 
+        reset() {
+            this.moves = [];
+            this.build();
+        }
+
         build() {
+            if (!this._board || !this._body)
+                return;
             let cells = [];
             for (const [row, rowObjs] of this._board.entries()) {
                 for (const [col, cell] of rowObjs.entries()) {
@@ -113,6 +162,8 @@ body {
                                 const moves = this.moves.map(coords => `${coords.row},${coords.col}`).join(" ");
                                 console.info(moves);
                                 alert(`Geschafft mit ${this.moves.length} Zügen: ${moves}`);
+                                this.generate();
+                                this.reset();
                             }
                         }, parseInt(this.getAttribute("fading-duration-ms") || FADING_DURATION_MS));
                     });
@@ -139,7 +190,7 @@ body {
                     else if (emptyCount > 0) {
                         this._board[row + emptyCount][col] = this._board[row][col];
                         this._board[row][col] = { letter: EMPTY };
-                        let cell = this._board[row + emptyCount][col];
+                        const cell = this._board[row + emptyCount][col];
                         cell.el.setAttribute("data-row", row + emptyCount);
                         cell.el.style.transitionDuration = `${(emptyCount) * 100}ms`;
                         cell.el.style.top = `${(row + emptyCount) * (CELL_SIZE + CELL_GAP)}px`;
@@ -176,9 +227,27 @@ body {
             }, parseInt(this.getAttribute("fading-duration-ms") || FADING_DURATION_MS));
         }
 
+        generate() {
+            this._rng.init_genrand(this._seed);
+            this._board = [...Array(this._height)].map(_ => Array(this._width).fill(null));
+            for (let row = 0; row < this._height; ++row) {
+                for (let col = 0; col < this._width; ++col) {
+                    this._board[row][col] = {
+                        letter: LETTERS[Math.floor(this._rng.genrand_int31() % LETTERS.length)],
+                    }
+                }
+            }
+            console.log(this._board.map(row => row.map(cell => cell.letter).join("")).join("\n"));
+            this.build();
+        }
+
     }
 
-    // best moves so far: 8,0 8,0 8,0 8,1 8,1 8,1 8,1 8,2 5,3 5,4 6,4 7,2 7,4 7,6
+    /*
+    best solutions so far:
+    seed=3479834 => 11 moves: 5,2 7,5 6,0 5,0 6,1 6,4 7,4 8,0 8,2 7,5 8,5
+                    11 moves: 5,4 5,4 8,5 8,5 8,5 8,6 6,1 7,0 7,0 7,1 8,1
+    */
     function play(seq) {
         const moves = seq.split(" ").map(coords => coords.split(",").map(Number));
         let t0 = performance.now();
@@ -192,18 +261,30 @@ body {
         requestAnimationFrame(autoplay);
     }
 
+    function parseHash(hash) {
+        const args = hash.split(";");
+        for (const arg of args) {
+            const [key, value] = arg.split("=");
+            switch (key) {
+                case "game":
+                    el.game.setAttribute("seed", value);
+                    break;
+                default:
+                    console.error(`invalid hash param: ${key}=${value}`);
+                    break;
+            }
+        }
+    }
+
+    function onHashChange(_event) {
+        parseHash(window.location.hash.substring(1));
+    }
+
     function main() {
         customElements.define("abcd-game", ABCDGame);
         el.game = document.querySelector("abcd-game");
-        el.game.setAttribute("board", `AAACDCB
-DCABAAB
-DCCBCCB
-BAACBCB
-BABDDBC
-BDBBBDC
-BCCBAAB
-ACACDAC
-ABAAAAA`);
+        window.addEventListener("hashchange", onHashChange);
+        dispatchEvent(new HashChangeEvent("hashchange"));
     }
 
     window.addEventListener("load", main);
