@@ -195,7 +195,7 @@ unsigned long long num_tries = 0;
 
 void display_stats(moves_t const& moves, bool &has_improved)
 {
-    has_improved = moves.size() < min_move_count;
+    has_improved = (int)moves.size() < min_move_count;
     if (!has_improved && ++num_tries % 125'000 == 0)
     {
         std::cout << "\r" << num_tries << " tries; ";
@@ -209,7 +209,7 @@ void display_stats(moves_t const& moves, bool &has_improved)
 void display_result(moves_t const& moves)
 {
     ++num_tries;
-    if (moves.size() < min_move_count)
+    if ((int)moves.size() < min_move_count)
     {
         min_moves = moves;
         min_move_count = moves.size();
