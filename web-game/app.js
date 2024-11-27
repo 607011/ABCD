@@ -79,7 +79,7 @@ body {
     transition-property: transform, top;
     transition-delay: 0ms, var(--fading-duration);
     transition-duration: var(--fading-duration), 0ms;
-    transition-timing-function: ease-out, ease-in;
+    transition-timing-function: ease-in-out, cubic-bezier(1, 0, 0.9, 1.29);
     width: var(--cell-size);
     height: var(--cell-size);
 }
@@ -268,6 +268,7 @@ body {
     best solutions so far:
     seed=3479834 => 11 moves: 5,2 7,5 6,0 5,0 6,1 6,4 7,4 8,0 8,2 7,5 8,5
                     11 moves: 5,4 5,4 8,5 8,5 8,5 8,6 6,1 7,0 7,0 7,1 8,1
+                    11 moves: 4,4 5,2 7,5 8,5 8,5 8,6 6,0 7,1 8,0 6,0 7,1
     */
     function play(seq) {
         if (el.game.boardIsClear())

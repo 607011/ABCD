@@ -43,7 +43,7 @@ struct ABCD
 
     static constexpr char EMPTY = '.';
 
-    static std::function<void(moves_t const&, bool &)> stats_callback;
+    static std::function<void(moves_t const&, bool&)> stats_callback;
     static std::function<void(moves_t const&)> result_callback;
 
     ABCD(std::string const& board_data)
@@ -79,9 +79,107 @@ struct ABCD
         print_board(board);
     }
 
+    std::vector<coord_t> cluster_points() const
+    {
+        std::vector<coord_t> points;
+        board_t b = board;
+        char letter;
+        std::function<void(int, int)> remove = [&](int r, int c) {
+            if (b.at(r).at(c) == letter)
+            {
+                b[r][c] = EMPTY;
+                if (r > 0)
+                    remove(r - 1, c);
+                if (r < (int)b.size() - 1)
+                    remove(r + 1, c);
+                if (c > 0)
+                    remove(r, c - 1);
+                if (c < (int)b[0].size() - 1)
+                    remove(r, c + 1);
+            }
+        };
+        for (int row = (int)b.size() - 1; row >= 0; --row)
+        {
+            for (int col = 0; col < (int)b.at(0).size(); ++col)
+            {
+                letter = b.at(row).at(col);
+                if (letter == EMPTY)
+                    continue;
+                remove(row, col);
+                points.emplace_back(coord_t{row, col});
+            }
+        }
+        return points;
+    }
+
+    void solve_dfs_clustered()
+    {
+        moves.clear();
+        // because it doesn't matter which cell is clicked in
+        // a cluster of cells, i.e. cells of same color adjacent one
+        // to another, we should build a list of clusters and do
+        // a depth-first search through that instead of cell for
+        // cell.
+
+        std::function<void(ABCD const&)> solve_dfs = [&](ABCD const& abcd) {
+            if (stats_callback)
+            {
+                bool has_improved;
+                stats_callback(abcd.moves, has_improved);
+                if (!has_improved)
+                    return;
+            }
+            if (abcd.is_clear())
+            {
+                if (result_callback)
+                    result_callback(abcd.moves);
+                return;
+            }
+            for (auto [row, col] : abcd.cluster_points())
+            {
+                if (abcd.board_empty_at(row, col))
+                    continue;
+                ABCD new_game = abcd;
+                new_game.remove_letter(row, col);
+                new_game.apply_gravity();
+                new_game.add_move(row, col);
+                solve_dfs(new_game);
+            }
+        };
+        solve_dfs(*this);
+    }
+
     void solve_dfs()
     {
         moves.clear();
+        std::function<void(ABCD const&)> solve_dfs = [&](ABCD const& abcd) {
+            if (stats_callback)
+            {
+                bool has_improved;
+                stats_callback(abcd.moves, has_improved);
+                if (!has_improved)
+                    return;
+            }
+            if (abcd.is_clear())
+            {
+                if (result_callback)
+                    result_callback(abcd.moves);
+                return;
+            }
+            for (int row = abcd.board.size() - 1; row >= 0; --row)
+            {
+                for (int col = 0; col < (int)abcd.board.at(row).size(); ++col)
+                {
+                    if (abcd.board_empty_at(row, col))
+                        continue;
+                    ABCD new_game = abcd;
+                    new_game.remove_letter(row, col);
+                    new_game.apply_gravity();
+                    new_game.add_move(row, col);
+                    solve_dfs(new_game);
+                }
+            }
+        };
         solve_dfs(*this);
     }
 
@@ -153,35 +251,6 @@ struct ABCD
             }
         };
         remove(row, col);
-        apply_gravity();
-    }
-
-    static void solve_dfs(ABCD const& abcd)
-    {
-        if (stats_callback) {
-            bool has_improved;
-            stats_callback(abcd.moves, has_improved);
-            if (!has_improved)
-                return;
-        }
-        if (abcd.is_clear())
-        {
-            if (result_callback)
-                result_callback(abcd.moves);
-            return;
-        }
-        for (int row = abcd.board.size() - 1; row >= 0; --row)
-        {
-            for (int col = 0; col < (int)abcd.board.at(row).size(); ++col)
-            {
-                if (abcd.board_empty_at(row, col))
-                    continue;
-                ABCD new_game = abcd;
-                new_game.remove_letter(row, col);
-                new_game.add_move(row, col);
-                solve_dfs(new_game);
-            }
-        }
     }
 };
 
@@ -192,7 +261,7 @@ int min_move_count = std::numeric_limits<int>::max();
 moves_t min_moves = {};
 unsigned long long num_tries = 0;
 
-void display_stats(moves_t const& moves, bool &has_improved)
+void display_stats(moves_t const& moves, bool& has_improved)
 {
     has_improved = (int)moves.size() < min_move_count;
     if (!has_improved && ++num_tries % 125'000 == 0)
@@ -224,7 +293,8 @@ void display_result(moves_t const& moves)
 int main()
 {
     std::string board_data;
-    for (std::string line; std::getline(std::cin, line);) {
+    for (std::string line; std::getline(std::cin, line);)
+    {
         board_data.append(line);
         board_data.append("\n");
     }
@@ -233,6 +303,6 @@ int main()
     abcd.result_callback = display_result;
     abcd.stats_callback = display_stats;
     abcd.print();
-    abcd.solve_dfs();
+    abcd.solve_dfs_clustered();
     return 0;
 }
