@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <functional>
 #include <iostream>
 #include <limits>
 #include <locale>
@@ -39,11 +40,11 @@ struct ABCD
 {
     board_t board;
     moves_t moves;
-    static int min_move_count;
-    static moves_t min_moves;
-    static unsigned long long num_tries;
 
     static constexpr char EMPTY = '.';
+
+    static std::function<void(moves_t const&, bool &)> stats_callback;
+    static std::function<void(moves_t const&)> result_callback;
 
     ABCD(std::string const& board_data)
     {
@@ -81,8 +82,6 @@ struct ABCD
     void solve_dfs()
     {
         moves.clear();
-        min_move_count = std::numeric_limits<int>::max();
-        num_tries = 0;
         solve_dfs(*this);
     }
 
@@ -158,40 +157,18 @@ struct ABCD
         apply_gravity();
     }
 
-    static void solve_dfs(ABCD const& abcd, int move_count = 0)
+    static void solve_dfs(ABCD const& abcd)
     {
-        auto display_stats = [&]() {
-            std::cout << "\r" << num_tries << " tries; ";
-            for (auto const& move : abcd.moves)
-            {
-                std::cout << move.row << ',' << move.col << ' ';
-            }
-            std::cout << "\x1b[K" << std::flush;
-        };
-        if (move_count >= min_move_count)
-        {
-            if (++num_tries % 125'000 == 0)
-                display_stats();
-            return;
+        if (stats_callback) {
+            bool has_improved;
+            stats_callback(abcd.moves, has_improved);
+            if (!has_improved)
+                return;
         }
         if (abcd.is_clear())
         {
-            ++num_tries;
-            if (move_count < min_move_count)
-            {
-                min_moves = abcd.moves;
-                min_move_count = move_count;
-                std::cout << "\rboard is clear after " << move_count << " moves: ";
-                for (auto const& move : min_moves)
-                {
-                    std::cout << move.row << ',' << move.col << ' ';
-                }
-                std::cout << std::endl;
-            }
-            else if (num_tries % 125'000 == 0)
-            {
-                display_stats();
-            }
+            if (result_callback)
+                result_callback(abcd.moves);
             return;
         }
         for (int row = abcd.board.size() - 1; row >= 0; --row)
@@ -203,66 +180,47 @@ struct ABCD
                 ABCD new_game = abcd;
                 new_game.remove_letter(row, col);
                 new_game.add_move(row, col);
-                solve_dfs(new_game, move_count + 1);
+                solve_dfs(new_game);
             }
         }
-    }
-
-    void solve_bfs()
-    {
-        moves.clear();
-        min_move_count = std::numeric_limits<int>::max();
-        num_tries = 0;
-
-        std::queue<std::pair<ABCD, int>> states_queue;
-        states_queue.push({*this, 0});
-
-        while (!states_queue.empty())
-        {
-            auto [current_state, move_count] = states_queue.front();
-            states_queue.pop();
-            ++num_tries;
-            if (current_state.is_clear())
-            {
-                std::cout << "\rboard is clear after " << move_count << " moves: ";
-                for (auto const& move : min_moves)
-                {
-                    std::cout << move.row << ',' << move.col << ' ';
-                }
-                return;
-            }
-            else if (num_tries % 1'000 == 0)
-            {
-                std::cout << "\r" << num_tries << " tries; ";
-                for (auto const& move : current_state.moves)
-                {
-                    std::cout << move.row << ',' << move.col << ' ';
-                }
-
-                std::cout << "\x1b[K" << std::flush;
-            }
-            for (int row = current_state.board.size() - 1; row >= 0; --row)
-            {
-                for (int col = 0; col < (int)current_state.board[row].size(); ++col)
-                {
-                    if (!current_state.board_empty_at(row, col))
-                    {
-                        ABCD new_state = current_state;
-                        new_state.remove_letter(row, col);
-                        new_state.add_move(row, col);
-                        states_queue.push({new_state, move_count + 1});
-                    }
-                }
-            }
-        }
-
-        std::cout << "No solution found.\n";
     }
 };
 
-moves_t ABCD::min_moves = {};
-int ABCD::min_move_count = std::numeric_limits<int>::max();
-unsigned long long ABCD::num_tries = 0;
+std::function<void(moves_t const&, bool&)> ABCD::stats_callback;
+std::function<void(moves_t const&)> ABCD::result_callback;
+
+int min_move_count = std::numeric_limits<int>::max();
+moves_t min_moves = {};
+unsigned long long num_tries = 0;
+
+void display_stats(moves_t const& moves, bool &has_improved)
+{
+    has_improved = moves.size() < min_move_count;
+    if (!has_improved && ++num_tries % 125'000 == 0)
+    {
+        std::cout << "\r" << num_tries << " tries; ";
+        for (auto const& move : moves)
+        {
+            std::cout << move.row << ',' << move.col << ' ';
+        }
+        std::cout << "\x1b[K" << std::flush;
+    }
+}
+void display_result(moves_t const& moves)
+{
+    ++num_tries;
+    if (moves.size() < min_move_count)
+    {
+        min_moves = moves;
+        min_move_count = moves.size();
+        std::cout << "\rboard is clear after " << min_move_count << " moves: ";
+        for (auto const& move : min_moves)
+        {
+            std::cout << move.row << ',' << move.col << ' ';
+        }
+        std::cout << std::endl;
+    }
+}
 
 int main()
 {
@@ -277,6 +235,8 @@ int main()
                                    "ABAAAAA\n";
     std::cout.imbue(std::locale(std::locale::classic(), new thsds_numpunct));
     ABCD abcd(board_data);
+    abcd.result_callback = display_result;
+    abcd.stats_callback = display_stats;
     abcd.print();
     abcd.solve_dfs();
     return 0;
