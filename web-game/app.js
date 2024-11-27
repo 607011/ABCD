@@ -44,6 +44,12 @@ import("./mt.js");
             this._moves = newMoves;
             this.dispatchMovesChanged();
         }
+        get width() {
+            return this._width;
+        }
+        get height() {
+            return this._height;
+        }
         dispatchMovesChanged() {
             this.dispatchEvent(new CustomEvent("moveschanged", {
                 detail: { moves: this.moves }
@@ -291,14 +297,21 @@ body {
     }
 
     function parseHash(hash) {
-        const args = hash.split(";");
-        for (const arg of args) {
+        for (const arg of hash.split(";")) {
             const [key, value] = arg.split("=");
             switch (key) {
                 case "game":
                     const seed = parseInt(value) || 0;
                     el.game.setAttribute("seed", seed);
                     el.seed.value = seed;
+                    break;
+                case "width":
+                    const width = parseInt(value) || 0;
+                    el.game.setAttribute("width", width);
+                    break;
+                case "height":
+                    const height = parseInt(value) || 0;
+                    el.game.setAttribute("height", height);
                     break;
                 default:
                     console.error(`invalid hash param: ${key}=${value}`);
@@ -312,7 +325,7 @@ body {
     }
 
     function buildHash() {
-        window.location.hash = `#game=${el.game.seed}`;
+        window.location.hash = `#game=${el.game.seed};width=${el.game.width};height=${el.game.height}`;
     }
 
     function onMovesChanged(e) {
