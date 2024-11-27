@@ -20,7 +20,7 @@ import("./mt.js");
             this._internals = this.attachInternals();
             this._board = null;
             this._style = null;
-            this.moves = [];
+            this._moves = [];
             this._rng = new MersenneTwister;
             this._seed = 1;
             this._width = 0;
@@ -33,6 +33,21 @@ import("./mt.js");
             this._seed = newSeed;
             this.generate();
             this.reset();
+        }
+        get seed() {
+            return this._seed;
+        }
+        get moves() {
+            return this._moves;
+        }
+        set moves(newMoves) {
+            this._moves = newMoves;
+            this.dispatchMovesChanged();
+        }
+        dispatchMovesChanged() {
+            this.dispatchEvent(new CustomEvent("moveschanged", {
+                detail: { moves: this.moves }
+            }));
         }
         connectedCallback() {
             this._shadow = this.attachShadow({ mode: "open" });
@@ -138,6 +153,11 @@ body {
             this.build();
         }
 
+        restart() {
+            this.generate();
+            this.reset();
+        }
+
         build() {
             if (!this._board || !this._body)
                 return;
@@ -155,6 +175,7 @@ body {
                         const row = parseInt(e.target.getAttribute("data-row"));
                         const col = parseInt(e.target.getAttribute("data-col"));
                         this.moves.push({ row, col });
+                        this.dispatchMovesChanged();
                         this.removeLetter(row, col);
                         setTimeout(() => {
                             this.applyGravity();
@@ -249,11 +270,18 @@ body {
                     11 moves: 5,4 5,4 8,5 8,5 8,5 8,6 6,1 7,0 7,0 7,1 8,1
     */
     function play(seq) {
+        if (el.game.boardIsClear())
+            el.game.restart();
         const moves = seq.split(" ").map(coords => coords.split(",").map(Number));
         let t0 = performance.now();
+        let executedMoves = [];
         const autoplay = _t => {
             if (moves.length > 0 && performance.now() > t0 + 1200) {
-                el.game.click(...moves.shift());
+                const move = moves.shift();
+                executedMoves.push(move);
+                el.game.click(...move);
+                el.game.moves = executedMoves;
+                el.game.dispatchMovesChanged();
                 t0 = performance.now()
             }
             requestAnimationFrame(autoplay);
@@ -267,7 +295,9 @@ body {
             const [key, value] = arg.split("=");
             switch (key) {
                 case "game":
-                    el.game.setAttribute("seed", value);
+                    const seed = parseInt(value) || 0;
+                    el.game.setAttribute("seed", seed);
+                    el.seed.value = seed;
                     break;
                 default:
                     console.error(`invalid hash param: ${key}=${value}`);
@@ -280,9 +310,26 @@ body {
         parseHash(window.location.hash.substring(1));
     }
 
+    function buildHash() {
+        window.location.hash = `#game=${el.game.seed}`;
+    }
+
+    function onMovesChanged(e) {
+        el.moveCount.textContent = `${e.detail.moves.length} ${e.detail.moves.length === 1 ? "move" : "moves"}`;
+    }
+
     function main() {
         customElements.define("abcd-game", ABCDGame);
         el.game = document.querySelector("abcd-game");
+        el.game.addEventListener("moveschanged", onMovesChanged);
+        el.seed = document.querySelector("#seed");
+        el.seed.addEventListener("change", e => {
+            el.game.setAttribute("seed", e.target.value);
+            buildHash();
+        });
+        el.moveCount = document.querySelector("#move-count");
+        el.restart = document.querySelector("#restart");
+        el.restart.addEventListener("click", () => el.game.restart());
         window.addEventListener("hashchange", onHashChange);
         dispatchEvent(new HashChangeEvent("hashchange"));
     }

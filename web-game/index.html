@@ -9,6 +9,16 @@
         <link rel="stylesheet" href="default.css">
     </head>
     <body>
-        <abcd-game seed="1" fading-duration-ms="100" width="7" height="9"></abcd-game>
+        <main>
+            <abcd-game seed="1" fading-duration-ms="100" width="7" height="9"></abcd-game>
+            <div id="stats">
+                <span id="move-count">0 moves</span>
+            </div>
+            <div id="controls">
+                <label for="seed">Game #</label>
+                <input type="number" min="1" name="seed" id="seed" value="1"/>
+                <span id="restart" title="restart">↩︎</span>
+            </div>
+        </main>
     </body>
 </html>

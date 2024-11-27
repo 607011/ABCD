@@ -6,9 +6,29 @@
 
 html, body {
     background-color: #282828;
+    color: #d8d8d8;
+    font-family: Helvetica, Arial, sans-serif;
+}
+
+main > div {
+    margin: 0 auto;
+    width: fit-content;
+    margin-top: 1ex;
 }
 
 abcd-game {
     display: block;
     margin: 0 auto;
+}
+
+input[type="number"] {
+    padding: 4px;
+    background-color: #282828;
+    color: #d8d8d8;
+    border: 1px solid #d8d8d8;
+    font-weight: bold;
+}
+
+#restart {
+    cursor: pointer;
 }
