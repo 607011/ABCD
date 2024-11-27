@@ -38,12 +38,10 @@ body {
     position: relative;
     display: block;
     margin: 0 auto;
-    width: fit-content;
 }
 .board > div {
     position: absolute;
     cursor: pointer;
-    border-radius: 20%;
     text-align: center;
     transition-property: transform, top;
     transition-delay: 0ms, var(--fading-duration);
@@ -54,12 +52,16 @@ body {
 }
 .board > div.A {
     background-color: gold;
+    border-radius: 25%;
 }
 .board > div.B {
     background-color: steelblue;
+    border-radius: 50%;
 }
 .board > div.C {
     background-color: orangered;
+    width: calc(var(--cell-size) * 0.8);
+    transform: skewX(-10deg) translateX(calc(var(--cell-size) * 0.1));
 }
 .board > div.D {
     background-color: olivedrab;
@@ -82,7 +84,6 @@ body {
                     this._board = newValue.split("\n").map((row => row.split("").map(letter => { return { letter }; })));
                     this._width = this._board[0].length;
                     this._height = this._board.length;
-                    this._body.style.height = `${this._height * (CELL_SIZE + CELL_GAP) + CELL_SIZE}px`;
                     this.build();
                     this.moves = [];
                     break;
@@ -100,7 +101,6 @@ body {
                     div.style.left = `${(CELL_SIZE + CELL_GAP) * col}px`;
                     div.setAttribute("data-row", row);
                     div.setAttribute("data-col", col);
-                    div.textContent = cell.letter;
                     this._board[row][col].el = div;
                     div.addEventListener("click", e => {
                         const row = parseInt(e.target.getAttribute("data-row"));
@@ -120,6 +120,8 @@ body {
                 }
             }
             this._boardEl.replaceChildren(...cells);
+            this._boardEl.style.width = `${this._width * ((CELL_SIZE + CELL_GAP))}px`;
+            this._boardEl.style.height = `${this._height * ((CELL_SIZE + CELL_GAP))}px`;
         }
 
         boardIsClear() {
@@ -139,7 +141,6 @@ body {
                         this._board[row][col] = { letter: EMPTY };
                         let cell = this._board[row + emptyCount][col];
                         cell.el.setAttribute("data-row", row + emptyCount);
-                        cell.el.textContent = this._board[row + emptyCount][col].letter;
                         cell.el.style.transitionDuration = `${(emptyCount) * 100}ms`;
                         cell.el.style.top = `${(row + emptyCount) * (CELL_SIZE + CELL_GAP)}px`;
                     }
