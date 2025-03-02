@@ -10,8 +10,6 @@ import("./mt.js");
     const CELL_GAP = 2;
     const CELL_SIZE = 44;
     const LETTERS = ["A", "B", "C", "D"];
-    const DEFAULT_WIDTH = 7;
-    const DEFAULT_HEIGHT = 9;
 
     class ABCDGame extends HTMLElement {
         static observedAttributes = ["board", "seed", "width", "height"];
@@ -286,7 +284,8 @@ body {
             if (moves.length > 0 && performance.now() > t0 + 1200) {
                 const move = moves.shift();
                 executedMoves.push(move);
-                el.game.click(...move);
+                const [row, col] = move;
+                el.game.click(row, col);
                 el.game.moves = executedMoves;
                 el.game.dispatchMovesChanged();
                 t0 = performance.now()
@@ -345,7 +344,10 @@ body {
         el.restart = document.querySelector("#restart");
         el.restart.addEventListener("click", () => el.game.restart());
         window.addEventListener("hashchange", onHashChange);
-        dispatchEvent(new HashChangeEvent("hashchange"));
+        if (window.location.hash.length < 1) {
+            window.location.hash = "#game=3479834;width=7;height=9";
+        }
+        onHashChange();
     }
 
     window.addEventListener("load", main);
