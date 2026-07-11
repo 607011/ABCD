@@ -189,7 +189,7 @@ struct ABCD
         board_t board;
         moves_t moves;
         int rating;
-        
+
         bool operator>(astar_node_t const& other) const
         {
             return rating > other.rating;
@@ -214,35 +214,36 @@ struct ABCD
     {
         moves.clear();
         std::priority_queue<astar_node_t, std::vector<astar_node_t>, std::greater<astar_node_t>> pq;
-        std::unordered_map<board_t, int, board_hash, board_equal> visited;
+        // Map to store: visited states keyed combinedly by (board_state, first_move).
+        // This ensures different starting strategies do not prune each other's intermediate state.
+        std::unordered_map<board_t, std::unordered_map<int, std::unordered_set<int>>, board_hash, board_equal>
+            visited_by_start;
         std::unordered_set<moves_t, moves_hash, moves_equal> unique_solutions;
-        
+
         int initial_count = count_letters(board);
         pq.push(astar_node_t{board, {}, initial_count});
-        visited[board] = 0;
-        
+
         int optimal_length = -1;
-        
+
         while (!pq.empty())
         {
             astar_node_t current = pq.top();
             pq.pop();
-            
+
             int current_g = current.moves.size();
-            
-            // If we already found an optimal solution and are now exploring deeper levels, we can stop
+
             if (optimal_length != -1 && current_g > optimal_length)
             {
                 break;
             }
-            
+
             if (is_clear(current.board))
             {
                 if (optimal_length == -1)
                 {
                     optimal_length = current_g;
                 }
-                
+
                 if (current_g == optimal_length)
                 {
                     if (unique_solutions.insert(current.moves).second)
@@ -255,43 +256,43 @@ struct ABCD
                 }
                 continue;
             }
-            
-            // For finding ALL optimal solutions, A* must allow visiting the same board at the SAME optimal depth.
-            // But if we found a strictly shorter path to this board already, we must skip.
-            if (visited.count(current.board) && visited[current.board] < current_g)
+
+            if (!current.moves.empty())
             {
-                continue;
+                // Retrieve the very first move coordinates
+                coord_t first_move = current.moves.front();
+
+                // If we have already visited this intermediate board from the SAME starting move, skip.
+                // This gives different sub-trees (like different first moves) their own completely separate visited
+                // spaces.
+                auto& start_map = visited_by_start[current.board];
+                if (start_map.count(first_move.row) && start_map[first_move.row].count(first_move.col))
+                {
+                    continue;
+                }
+                start_map[first_move.row].insert(first_move.col);
             }
-            
+
             // Temporary ABCD to get cluster points
             ABCD temp_game("");
             temp_game.board = current.board;
-            
+
             for (auto [row, col] : temp_game.cluster_points())
             {
                 if (temp_game.board_empty_at(row, col))
                     continue;
-                
+
                 ABCD new_game = temp_game;
                 new_game.remove_letter(row, col);
                 new_game.apply_gravity();
-                
+
                 int next_g = current_g + 1;
-                // MUST allow equal 'next_g' to visit the same state through different paths since we want multiple solutions
-                if (!visited.count(new_game.board) || visited[new_game.board] >= next_g)
-                {
-                    visited[new_game.board] = next_g;
-                    
-                    moves_t next_moves = current.moves;
-                    next_moves.emplace_back(coord_t{row, col});
-                    
-                    // Standard admissibility score: 
-                    // To find ALL solutions correctly we use rating = next_g * multiplier + remaining_letters
-                    // With next_g * 10, remaining_letters acts as an tie-breaker which allows finding optimal solutions
-                    // first, but doesn't delay visiting them so much that we run out of memory or time.
-                    int rating = next_g * 4 + count_letters(new_game.board);
-                    pq.push(astar_node_t{new_game.board, next_moves, rating});
-                }
+
+                moves_t next_moves = current.moves;
+                next_moves.emplace_back(coord_t{row, col});
+
+                int rating = next_g * 4 + count_letters(new_game.board);
+                pq.push(astar_node_t{new_game.board, next_moves, rating});
             }
         }
     }
@@ -303,12 +304,12 @@ struct ABCD
         queue.push(*this);
         std::unordered_set<board_t, board_hash, board_equal> visited;
         visited.insert(board);
-        
+
         while (!queue.empty())
         {
             ABCD current_state = queue.front();
             queue.pop();
-            
+
             if (current_state.is_clear())
             {
                 if (result_callback)
@@ -317,12 +318,12 @@ struct ABCD
                 }
                 break;
             }
-            
+
             if (current_state.moves.size() >= max_moves)
             {
                 continue;
             }
-            
+
             for (auto [row, col] : current_state.cluster_points())
             {
                 if (current_state.board_empty_at(row, col))
@@ -330,7 +331,7 @@ struct ABCD
                 ABCD new_game = current_state;
                 new_game.remove_letter(row, col);
                 new_game.apply_gravity();
-                
+
                 if (visited.insert(new_game.board).second)
                 {
                     new_game.add_move(row, col);
@@ -358,14 +359,14 @@ struct ABCD
                     result_callback(abcd.moves);
                 return;
             }
-            
+
             auto it = visited.find(abcd.board);
             if (it != visited.end() && it->second <= (int)abcd.moves.size())
             {
                 return;
             }
             visited[abcd.board] = abcd.moves.size();
-            
+
             for (auto [row, col] : abcd.cluster_points())
             {
                 if (abcd.board_empty_at(row, col))
