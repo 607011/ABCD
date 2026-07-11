@@ -5,6 +5,7 @@
 #include <locale>
 #include <queue>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 class thsds_numpunct : public std::numpunct<char>
@@ -36,11 +37,76 @@ typedef struct
 using board_t = std::vector<std::vector<char>>;
 using moves_t = std::vector<coord_t>;
 
+struct ABCD;
+
+struct board_hash
+{
+    size_t operator()(board_t const& board) const
+    {
+        size_t seed = board.size();
+        for (const auto& row : board)
+        {
+            for (char cell : row)
+            {
+                seed ^= cell + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+            }
+        }
+        return seed;
+    }
+};
+
+struct board_equal
+{
+    bool operator()(board_t const& a, board_t const& b) const
+    {
+        if (a.size() != b.size())
+            return false;
+        for (size_t i = 0; i < a.size(); ++i)
+        {
+            if (a.at(i) != b.at(i))
+                return false;
+        }
+        return true;
+    }
+};
+
+struct moves_hash
+{
+    size_t operator()(moves_t const& moves) const
+    {
+        size_t seed = moves.size();
+        for (const auto& move : moves)
+        {
+            seed ^= move.col + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+            seed ^= move.row + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+        }
+        return seed;
+    }
+};
+
+struct moves_equal
+{
+    bool operator()(moves_t const& a, moves_t const& b) const
+    {
+        if (a.size() != b.size())
+            return false;
+        for (size_t i = 0; i < a.size(); ++i)
+        {
+            if (a.at(i).col != b.at(i).col)
+                return false;
+            if (a.at(i).row != b.at(i).row)
+                return false;
+        }
+        return true;
+    }
+};
+
 struct ABCD
 {
     board_t board;
     moves_t moves;
 
+    static constexpr int max_moves{50};
     static constexpr char EMPTY = '.';
 
     static std::function<void(moves_t const&, bool&)> stats_callback;
@@ -112,15 +178,59 @@ struct ABCD
         return points;
     }
 
+    struct state_t
+    {
+        board_t board;
+        moves_t moves;
+    };
+
+    void solve_bfs_clustered()
+    {
+        moves.clear();
+        std::queue<ABCD> queue;
+        queue.push(*this);
+        std::unordered_set<board_t, board_hash, board_equal> visited;
+        visited.insert(board);
+        
+        while (!queue.empty())
+        {
+            ABCD current_state = queue.front();
+            queue.pop();
+            
+            if (current_state.is_clear())
+            {
+                if (result_callback)
+                {
+                    result_callback(current_state.moves);
+                }
+                break;
+            }
+            
+            if (current_state.moves.size() >= max_moves)
+            {
+                continue;
+            }
+            
+            for (auto [row, col] : current_state.cluster_points())
+            {
+                if (current_state.board_empty_at(row, col))
+                    continue;
+                ABCD new_game = current_state;
+                new_game.remove_letter(row, col);
+                new_game.apply_gravity();
+                
+                if (visited.insert(new_game.board).second)
+                {
+                    new_game.add_move(row, col);
+                    queue.push(new_game);
+                }
+            }
+        }
+    }
+
     void solve_dfs_clustered()
     {
         moves.clear();
-        // because it doesn't matter which cell is clicked in
-        // a cluster of cells, i.e. cells of same color adjacent one
-        // to another, we should build a list of clusters and do
-        // a depth-first search through that instead of cell for
-        // cell.
-
         std::function<void(ABCD const&)> solve_dfs = [&](ABCD const& abcd) {
             if (stats_callback)
             {
@@ -196,11 +306,16 @@ struct ABCD
         std::cout << std::endl;
     }
 
-    bool is_clear() const
+    static bool is_clear(board_t const& board)
     {
         return std::all_of(board.begin(), board.end(), [](const std::vector<char>& row) {
             return std::all_of(row.begin(), row.end(), [](char cell) { return cell == EMPTY; });
         });
+    }
+
+    bool is_clear() const
+    {
+        return is_clear(board);
     }
 
     inline void add_move(int row, int col)
@@ -290,8 +405,17 @@ void display_result(moves_t const& moves)
     }
 }
 
-int main()
+int main(int argc, char* argv[])
 {
+    bool use_dfs = false;
+    if (argc > 1)
+    {
+        std::string arg(argv[1]);
+        if (arg == "--dfs")
+        {
+            use_dfs = true;
+        }
+    }
     std::string board_data;
     for (std::string line; std::getline(std::cin, line);)
     {
@@ -303,6 +427,13 @@ int main()
     abcd.result_callback = display_result;
     abcd.stats_callback = display_stats;
     abcd.print();
-    abcd.solve_dfs_clustered();
+    if (use_dfs)
+    {
+        abcd.solve_dfs_clustered();
+    }
+    else
+    {
+        abcd.solve_bfs_clustered();
+    }
     return 0;
 }

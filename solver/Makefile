@@ -10,7 +10,7 @@ all: $(EXE)
 debug: CXXFLAGS += -O0 -DDEBUG -g -pedantic
 debug: $(EXE)
 
-release: CXXFLAGS += -Ofast -DNDEBUG
+release: CXXFLAGS += -O3 -DNDEBUG
 release: $(EXE)
 release: strip
 
