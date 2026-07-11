@@ -282,21 +282,28 @@ body {
         if (el.game.boardIsClear())
             el.game.restart();
         const moves = seq.split(" ").map(coords => coords.split(",").map(Number));
-        let t0 = performance.now();
+        let index = 0;
         let executedMoves = [];
-        const autoplay = _t => {
-            if (moves.length > 0 && performance.now() > t0 + 1200) {
-                const move = moves.shift();
-                executedMoves.push(move);
-                const [row, col] = move;
-                el.game.click(row, col);
-                el.game.moves = executedMoves;
-                el.game.dispatchMovesChanged();
-                t0 = performance.now()
+
+        const nextClick = () => {
+            if (index < moves.length) {
+                const [row, col] = moves[index];
+
+                // Find and click the actual DOM cell to trigger full flow (including sound/effects and dispatching)
+                const cellEl = el.game.shadowRoot.querySelector(`div[data-row="${row}"][data-col="${col}"]`);
+                if (cellEl) {
+                    cellEl.click();
+                } else {
+                    // Fallback to custom click if element is not found (e.g. because of layout changing)
+                    el.game.click(row, col);
+                }
+
+                index++;
+                // Wait for cells to fade out and gravity transition before triggering the next click (approx. 1200ms)
+                setTimeout(nextClick, 1200);
             }
-            requestAnimationFrame(autoplay);
-        }
-        requestAnimationFrame(autoplay);
+        };
+        nextClick();
     }
 
     function parseHash(hash) {
