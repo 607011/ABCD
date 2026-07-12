@@ -6,6 +6,7 @@
 #include <queue>
 #include <string>
 #include <unordered_set>
+#include <unordered_map>
 #include <vector>
 
 class thsds_numpunct : public std::numpunct<char>
@@ -34,7 +35,7 @@ typedef struct
     char c;
 } cell_t;
 
-using board_t = std::vector<std::vector<char>>;
+using board_t = std::vector<char>;
 using moves_t = std::vector<coord_t>;
 
 struct ABCD;
@@ -44,12 +45,9 @@ struct board_hash
     size_t operator()(board_t const& board) const
     {
         size_t seed = board.size();
-        for (const auto& row : board)
+        for (char cell : board)
         {
-            for (char cell : row)
-            {
-                seed ^= cell + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-            }
+            seed ^= cell + 0x9e3779b9 + (seed << 6) + (seed >> 2);
         }
         return seed;
     }
@@ -59,14 +57,7 @@ struct board_equal
 {
     bool operator()(board_t const& a, board_t const& b) const
     {
-        if (a.size() != b.size())
-            return false;
-        for (size_t i = 0; i < a.size(); ++i)
-        {
-            if (a.at(i) != b.at(i))
-                return false;
-        }
-        return true;
+        return a == b;
     }
 };
 
@@ -105,31 +96,48 @@ struct ABCD
 {
     board_t board;
     moves_t moves;
+    int height{0};
+    int width{0};
 
     static constexpr int max_moves{50};
     static constexpr char EMPTY = '.';
+    // Bounds the DFS transposition table so memory stays capped instead of growing with the
+    // (potentially huge) number of distinct reachable boards; once full, new states just lose
+    // the dedup optimization rather than being pruned incorrectly.
+    static constexpr size_t max_visited_entries{3'000'000};
 
     static std::function<void(moves_t const&, bool&)> stats_callback;
     static std::function<void(moves_t const&)> result_callback;
 
     ABCD(std::string const& board_data)
     {
-        std::vector<char> row_data;
+        int cols = 0;
+        int current_cols = 0;
         for (char cell : board_data)
         {
-            if (cell != '\n')
+            if (cell != '\r' && cell != '\n')
             {
-                row_data.push_back(cell);
+                board.push_back(cell);
+                current_cols++;
             }
-            else
+            else if (current_cols > 0)
             {
-                board.push_back(row_data);
-                row_data.clear();
+                cols = current_cols;
+                current_cols = 0;
             }
+        }
+        if (current_cols > 0)
+        {
+            cols = current_cols;
+        }
+        width = cols;
+        if (width > 0)
+        {
+            height = board.size() / width;
         }
     }
 
-    ABCD(ABCD const& other) : board(other.board), moves(other.moves)
+    ABCD(ABCD const& other) : board(other.board), moves(other.moves), height(other.height), width(other.width)
     {
     }
 
@@ -137,12 +145,14 @@ struct ABCD
     {
         board = other.board;
         moves = other.moves;
+        height = other.height;
+        width = other.width;
         return *this;
     }
 
     void print() const
     {
-        print_board(board);
+        print_board(board, width);
     }
 
     std::vector<coord_t> cluster_points() const
@@ -151,24 +161,25 @@ struct ABCD
         board_t b = board;
         char letter;
         std::function<void(int, int)> remove = [&](int r, int c) {
-            if (b.at(r).at(c) == letter)
+            int idx = r * width + c;
+            if (b.at(idx) == letter)
             {
-                b[r][c] = EMPTY;
+                b[idx] = EMPTY;
                 if (r > 0)
                     remove(r - 1, c);
-                if (r < (int)b.size() - 1)
+                if (r < height - 1)
                     remove(r + 1, c);
                 if (c > 0)
                     remove(r, c - 1);
-                if (c < (int)b[0].size() - 1)
+                if (c < width - 1)
                     remove(r, c + 1);
             }
         };
-        for (int row = (int)b.size() - 1; row >= 0; --row)
+        for (int row = height - 1; row >= 0; --row)
         {
-            for (int col = 0; col < (int)b.at(0).size(); ++col)
+            for (int col = 0; col < width; ++col)
             {
-                letter = b.at(row).at(col);
+                letter = b.at(row * width + col);
                 if (letter == EMPTY)
                     continue;
                 remove(row, col);
@@ -199,13 +210,10 @@ struct ABCD
     int count_letters(board_t const& b) const
     {
         int count = 0;
-        for (const auto& row : b)
+        for (char cell : b)
         {
-            for (char cell : row)
-            {
-                if (cell != EMPTY)
-                    ++count;
-            }
+            if (cell != EMPTY)
+                ++count;
         }
         return count;
     }
@@ -214,8 +222,6 @@ struct ABCD
     {
         moves.clear();
         std::priority_queue<astar_node_t, std::vector<astar_node_t>, std::greater<astar_node_t>> pq;
-        // Map to store: visited states keyed combinedly by (board_state, first_move).
-        // This ensures different starting strategies do not prune each other's intermediate state.
         std::unordered_map<board_t, std::unordered_map<int, std::unordered_set<int>>, board_hash, board_equal>
             visited_by_start;
         std::unordered_set<moves_t, moves_hash, moves_equal> unique_solutions;
@@ -259,12 +265,8 @@ struct ABCD
 
             if (!current.moves.empty())
             {
-                // Retrieve the very first move coordinates
                 coord_t first_move = current.moves.front();
 
-                // If we have already visited this intermediate board from the SAME starting move, skip.
-                // This gives different sub-trees (like different first moves) their own completely separate visited
-                // spaces.
                 auto& start_map = visited_by_start[current.board];
                 if (start_map.count(first_move.row) && start_map[first_move.row].count(first_move.col))
                 {
@@ -273,9 +275,10 @@ struct ABCD
                 start_map[first_move.row].insert(first_move.col);
             }
 
-            // Temporary ABCD to get cluster points
             ABCD temp_game("");
             temp_game.board = current.board;
+            temp_game.width = width;
+            temp_game.height = height;
 
             for (auto [row, col] : temp_game.cluster_points())
             {
@@ -297,45 +300,78 @@ struct ABCD
         }
     }
 
+    // Parent points into the key storage of `visited` below, which is stable across inserts
+    // (unordered_map only invalidates pointers/references to an element by erasing it, never
+    // by inserting more elements) -- so each board is stored exactly once, as a map key,
+    // instead of once in a "pool" vector and again in a separate "visited" set.
+    struct bfs_node_t
+    {
+        board_t const* parent;
+        coord_t last_move;
+        int depth;
+    };
+
     void solve_bfs_clustered()
     {
         moves.clear();
-        std::queue<ABCD> queue;
-        queue.push(*this);
-        std::unordered_set<board_t, board_hash, board_equal> visited;
-        visited.insert(board);
+        std::unordered_map<board_t, bfs_node_t, board_hash, board_equal> visited;
+        std::queue<board_t const*> q;
 
-        while (!queue.empty())
+        auto [root_it, _] = visited.emplace(board, bfs_node_t{nullptr, coord_t{0, 0}, 0});
+        q.push(&root_it->first);
+
+        while (!q.empty())
         {
-            ABCD current_state = queue.front();
-            queue.pop();
+            board_t const* curr_board = q.front();
+            q.pop();
 
-            if (current_state.is_clear())
+            bfs_node_t const& current_node = visited.at(*curr_board);
+
+            if (is_clear(*curr_board))
             {
+                moves_t path;
+                board_t const* p = curr_board;
+                while (true)
+                {
+                    bfs_node_t const& n = visited.at(*p);
+                    if (n.parent == nullptr)
+                        break;
+                    path.push_back(n.last_move);
+                    p = n.parent;
+                }
+                std::reverse(path.begin(), path.end());
+
                 if (result_callback)
                 {
-                    result_callback(current_state.moves);
+                    result_callback(path);
                 }
                 break;
             }
 
-            if (current_state.moves.size() >= max_moves)
+            if (current_node.depth >= max_moves)
             {
                 continue;
             }
 
-            for (auto [row, col] : current_state.cluster_points())
+            ABCD temp_game("");
+            temp_game.board = *curr_board;
+            temp_game.width = width;
+            temp_game.height = height;
+
+            for (auto [row, col] : temp_game.cluster_points())
             {
-                if (current_state.board_empty_at(row, col))
+                if (temp_game.board_empty_at(row, col))
                     continue;
-                ABCD new_game = current_state;
+
+                ABCD new_game = temp_game;
                 new_game.remove_letter(row, col);
                 new_game.apply_gravity();
 
-                if (visited.insert(new_game.board).second)
+                auto [it, inserted] =
+                    visited.emplace(new_game.board, bfs_node_t{curr_board, coord_t{row, col}, current_node.depth + 1});
+                if (inserted)
                 {
-                    new_game.add_move(row, col);
-                    queue.push(new_game);
+                    q.push(&it->first);
                 }
             }
         }
@@ -361,11 +397,18 @@ struct ABCD
             }
 
             auto it = visited.find(abcd.board);
-            if (it != visited.end() && it->second <= (int)abcd.moves.size())
+            if (it != visited.end())
             {
-                return;
+                if (it->second <= (int)abcd.moves.size())
+                {
+                    return;
+                }
+                it->second = abcd.moves.size();
             }
-            visited[abcd.board] = abcd.moves.size();
+            else if (visited.size() < max_visited_entries)
+            {
+                visited.emplace(abcd.board, (int)abcd.moves.size());
+            }
 
             for (auto [row, col] : abcd.cluster_points())
             {
@@ -381,58 +424,22 @@ struct ABCD
         solve_dfs(*this);
     }
 
-    void solve_dfs()
+    static void print_board(board_t const& board, int w)
     {
-        moves.clear();
-        std::function<void(ABCD const&)> solve_dfs = [&](ABCD const& abcd) {
-            if (stats_callback)
-            {
-                bool has_improved;
-                stats_callback(abcd.moves, has_improved);
-                if (!has_improved)
-                    return;
-            }
-            if (abcd.is_clear())
-            {
-                if (result_callback)
-                    result_callback(abcd.moves);
-                return;
-            }
-            for (int row = abcd.board.size() - 1; row >= 0; --row)
-            {
-                for (int col = 0; col < (int)abcd.board.at(row).size(); ++col)
-                {
-                    if (abcd.board_empty_at(row, col))
-                        continue;
-                    ABCD new_game = abcd;
-                    new_game.remove_letter(row, col);
-                    new_game.apply_gravity();
-                    new_game.add_move(row, col);
-                    solve_dfs(new_game);
-                }
-            }
-        };
-        solve_dfs(*this);
-    }
-
-    static void print_board(board_t const& board)
-    {
-        for (const auto& row : board)
+        for (size_t i = 0; i < board.size(); ++i)
         {
-            for (char cell : row)
+            std::cout << board[i];
+            if ((i + 1) % w == 0)
             {
-                std::cout << cell;
+                std::cout << '\n';
             }
-            std::cout << '\n';
         }
         std::cout << std::endl;
     }
 
     static bool is_clear(board_t const& board)
     {
-        return std::all_of(board.begin(), board.end(), [](const std::vector<char>& row) {
-            return std::all_of(row.begin(), row.end(), [](char cell) { return cell == EMPTY; });
-        });
+        return std::all_of(board.begin(), board.end(), [](char cell) { return cell == EMPTY; });
     }
 
     bool is_clear() const
@@ -447,24 +454,25 @@ struct ABCD
 
     inline bool board_empty_at(int row, int col) const
     {
-        return board.at(row).at(col) == EMPTY;
+        return board.at(row * width + col) == EMPTY;
     }
 
     void apply_gravity()
     {
-        for (int col = 0; col < (int)board.front().size(); ++col)
+        for (int col = 0; col < width; ++col)
         {
             int empty_count = 0;
-            for (int row = (int)board.size() - 1; row >= 0; --row)
+            for (int row = height - 1; row >= 0; --row)
             {
-                if (board[row][col] == EMPTY)
+                int idx = row * width + col;
+                if (board[idx] == EMPTY)
                 {
                     ++empty_count;
                 }
                 else if (empty_count > 0)
                 {
-                    board[row + empty_count][col] = board[row][col];
-                    board[row][col] = EMPTY;
+                    board[(row + empty_count) * width + col] = board[idx];
+                    board[idx] = EMPTY;
                 }
             }
         }
@@ -472,18 +480,19 @@ struct ABCD
 
     void remove_letter(int row, int col)
     {
-        char letter = board.at(row).at(col);
+        char letter = board.at(row * width + col);
         std::function<void(int, int)> remove = [&](int r, int c) {
-            if (board.at(r).at(c) == letter)
+            int idx = r * width + c;
+            if (board.at(idx) == letter)
             {
-                board[r][c] = EMPTY;
+                board[idx] = EMPTY;
                 if (r > 0)
                     remove(r - 1, c);
-                if (r < (int)board.size() - 1)
+                if (r < height - 1)
                     remove(r + 1, c);
                 if (c > 0)
                     remove(r, c - 1);
-                if (c < (int)board[0].size() - 1)
+                if (c < width - 1)
                     remove(r, c + 1);
             }
         };
