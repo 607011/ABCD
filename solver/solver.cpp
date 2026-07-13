@@ -1,4 +1,6 @@
 #include <algorithm>
+#include <chrono>
+#include <deque>
 #include <functional>
 #include <iostream>
 #include <limits>
@@ -106,7 +108,7 @@ struct ABCD
     // the dedup optimization rather than being pruned incorrectly.
     static constexpr size_t max_visited_entries{3'000'000};
 
-    static std::function<void(moves_t const&, bool&)> stats_callback;
+    static std::function<void(moves_t const&, int, bool&)> stats_callback;
     static std::function<void(moves_t const&)> result_callback;
 
     ABCD(std::string const& board_data)
@@ -189,16 +191,72 @@ struct ABCD
         return points;
     }
 
+    struct cluster_t
+    {
+        coord_t point;
+        int size;
+    };
+
+    // Like cluster_points(), but also reports each cluster's size -- needed by solve_ida_star()
+    // to filter out single-cell clusters (not clickable under that ruleset) and to try the
+    // largest clusters first.
+    std::vector<cluster_t> clusters() const
+    {
+        std::vector<cluster_t> result;
+        board_t b = board;
+        char letter;
+        int size;
+        std::function<void(int, int)> remove = [&](int r, int c) {
+            int idx = r * width + c;
+            if (b.at(idx) == letter)
+            {
+                b[idx] = EMPTY;
+                ++size;
+                if (r > 0)
+                    remove(r - 1, c);
+                if (r < height - 1)
+                    remove(r + 1, c);
+                if (c > 0)
+                    remove(r, c - 1);
+                if (c < width - 1)
+                    remove(r, c + 1);
+            }
+        };
+        for (int row = height - 1; row >= 0; --row)
+        {
+            for (int col = 0; col < width; ++col)
+            {
+                letter = b.at(row * width + col);
+                if (letter == EMPTY)
+                    continue;
+                size = 0;
+                remove(row, col);
+                result.push_back(cluster_t{coord_t{row, col}, size});
+            }
+        }
+        return result;
+    }
+
     struct state_t
     {
         board_t board;
         moves_t moves;
     };
 
+    // Parent points into path_pool (a std::deque, so pointers survive further push_back calls),
+    // so a queued node's move history is a cheap pointer instead of a full moves_t copy per node.
+    struct astar_path_node_t
+    {
+        astar_path_node_t const* parent;
+        coord_t last_move;
+        coord_t first_move;
+        int depth;
+    };
+
     struct astar_node_t
     {
         board_t board;
-        moves_t moves;
+        astar_path_node_t const* path;
         int rating;
 
         bool operator>(astar_node_t const& other) const
@@ -218,6 +276,97 @@ struct ABCD
         return count;
     }
 
+    // Admissible lower bound on the moves still needed to clear `b`: every move clears cells of
+    // exactly one color, so at least one move per remaining distinct color is unavoidable (the
+    // best case is that all cells of a color merge into a single cluster via gravity and go in
+    // one move -- never fewer). Unlike count_letters, this never overestimates the true
+    // remaining cost, so g + this bound is safe to prune on.
+    int count_distinct_colors(board_t const& b) const
+    {
+        bool seen[256] = {false};
+        int count = 0;
+        for (char cell : b)
+        {
+            if (cell != EMPTY && !seen[(unsigned char)cell])
+            {
+                seen[(unsigned char)cell] = true;
+                ++count;
+            }
+        }
+        return count;
+    }
+
+    // IDA*: repeatedly do a depth-limited, branch-and-bound DFS with an increasing move-count
+    // limit, starting at the admissible color-count lower bound. O(depth) memory -- no
+    // transposition table at all, trading repeated work across iterations for the memory
+    // blowup a full visited-state search would incur on large boards. Same clickability rule as
+    // --dfs/--bfs/--astar (any non-empty cluster, including single cells); only the
+    // largest-cluster-first move ordering needs cluster size.
+    // The first depth_limit that admits any solution is, by construction, optimal (every
+    // smaller depth_limit already searched exhaustively and failed) -- so that whole iteration
+    // is run to completion instead of stopping at the first hit, to report every solution tied
+    // at that length.
+    void solve_ida_star()
+    {
+        moves.clear();
+        int lower_bound = count_distinct_colors(board);
+        unsigned long long nodes_visited = 0;
+        bool found_any = false;
+
+        std::function<void(ABCD const&, int, moves_t&)> search = [&](ABCD const& abcd, int depth_limit,
+                                                                       moves_t& path) {
+            ++nodes_visited;
+
+            if (abcd.is_clear())
+            {
+                if ((int)path.size() == depth_limit)
+                {
+                    found_any = true;
+                    if (result_callback)
+                    {
+                        result_callback(path);
+                    }
+                }
+                return;
+            }
+
+            if ((int)path.size() + count_distinct_colors(abcd.board) > depth_limit)
+            {
+                return;
+            }
+
+            std::vector<cluster_t> candidates = abcd.clusters();
+            std::sort(candidates.begin(), candidates.end(),
+                      [](cluster_t const& a, cluster_t const& b) { return a.size > b.size; });
+
+            for (auto const& cl : candidates)
+            {
+                ABCD new_game = abcd;
+                new_game.remove_letter(cl.point.row, cl.point.col);
+                new_game.apply_gravity();
+                path.push_back(cl.point);
+                search(new_game, depth_limit, path);
+                path.pop_back();
+            }
+        };
+
+        for (int depth_limit = lower_bound; depth_limit <= max_moves; ++depth_limit)
+        {
+            moves_t path;
+            nodes_visited = 0;
+            found_any = false;
+            auto t0 = std::chrono::steady_clock::now();
+            search(*this, depth_limit, path);
+            double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+            if (found_any)
+            {
+                return;
+            }
+            std::cout << "Tiefe " << depth_limit << ": keine Loesung (" << nodes_visited << " Knoten, " << elapsed
+                       << "s)" << std::endl;
+        }
+    }
+
     void solve_astar_clustered()
     {
         moves.clear();
@@ -225,9 +374,10 @@ struct ABCD
         std::unordered_map<board_t, std::unordered_map<int, std::unordered_set<int>>, board_hash, board_equal>
             visited_by_start;
         std::unordered_set<moves_t, moves_hash, moves_equal> unique_solutions;
+        std::deque<astar_path_node_t> path_pool;
 
         int initial_count = count_letters(board);
-        pq.push(astar_node_t{board, {}, initial_count});
+        pq.push(astar_node_t{board, nullptr, initial_count});
 
         int optimal_length = -1;
 
@@ -236,11 +386,16 @@ struct ABCD
             astar_node_t current = pq.top();
             pq.pop();
 
-            int current_g = current.moves.size();
+            int current_g = current.path ? current.path->depth : 0;
 
             if (optimal_length != -1 && current_g > optimal_length)
             {
-                break;
+                // Not `break`: rating = g*4 + remaining_letter_count is not an admissible bound
+                // (one move can clear an arbitrarily large cluster), so a node that's still one
+                // move away from a tied solution can rate worse than an unrelated dead end that's
+                // already past optimal_length. Skip this dead end but keep draining the queue so
+                // every node with g <= optimal_length still gets its turn.
+                continue;
             }
 
             if (is_clear(current.board))
@@ -252,27 +407,45 @@ struct ABCD
 
                 if (current_g == optimal_length)
                 {
-                    if (unique_solutions.insert(current.moves).second)
+                    moves_t solution_moves;
+                    for (astar_path_node_t const* p = current.path; p != nullptr; p = p->parent)
+                    {
+                        solution_moves.push_back(p->last_move);
+                    }
+                    std::reverse(solution_moves.begin(), solution_moves.end());
+
+                    if (unique_solutions.insert(solution_moves).second)
                     {
                         if (result_callback)
                         {
-                            result_callback(current.moves);
+                            result_callback(solution_moves);
                         }
                     }
                 }
                 continue;
             }
 
-            if (!current.moves.empty())
+            if (current.path != nullptr)
             {
-                coord_t first_move = current.moves.front();
+                coord_t first_move = current.path->first_move;
 
-                auto& start_map = visited_by_start[current.board];
-                if (start_map.count(first_move.row) && start_map[first_move.row].count(first_move.col))
+                auto it = visited_by_start.find(current.board);
+                if (it != visited_by_start.end())
                 {
-                    continue;
+                    auto& start_map = it->second;
+                    if (start_map.count(first_move.row) && start_map[first_move.row].count(first_move.col))
+                    {
+                        continue;
+                    }
+                    start_map[first_move.row].insert(first_move.col);
                 }
-                start_map[first_move.row].insert(first_move.col);
+                else if (visited_by_start.size() < max_visited_entries)
+                {
+                    visited_by_start[current.board][first_move.row].insert(first_move.col);
+                }
+                // else: cap reached and this board isn't tracked yet -- just skip the dedup
+                // optimization for it (may re-expand a (board, first move) pair redundantly,
+                // but never produces a wrong or missed solution).
             }
 
             ABCD temp_game("");
@@ -290,12 +463,14 @@ struct ABCD
                 new_game.apply_gravity();
 
                 int next_g = current_g + 1;
+                coord_t move{row, col};
+                coord_t first_move = current.path ? current.path->first_move : move;
 
-                moves_t next_moves = current.moves;
-                next_moves.emplace_back(coord_t{row, col});
+                path_pool.push_back(astar_path_node_t{current.path, move, first_move, next_g});
+                astar_path_node_t const* new_path = &path_pool.back();
 
                 int rating = next_g * 4 + count_letters(new_game.board);
-                pq.push(astar_node_t{new_game.board, next_moves, rating});
+                pq.push(astar_node_t{new_game.board, new_path, rating});
             }
         }
     }
@@ -380,12 +555,16 @@ struct ABCD
     void solve_dfs_clustered()
     {
         moves.clear();
-        std::unordered_map<board_t, int, board_hash, board_equal> visited;
+        // Keyed by (board, first move), not board alone: two different opening moves that
+        // happen to reach the same intermediate board must each keep exploring independently,
+        // otherwise whichever one DFS visits first silently swallows every tied solution that
+        // starts with the other opening move (same completeness issue solved for A* earlier).
+        std::unordered_map<board_t, std::unordered_map<int, int>, board_hash, board_equal> visited;
         std::function<void(ABCD const&)> solve_dfs = [&](ABCD const& abcd) {
             if (stats_callback)
             {
                 bool has_improved;
-                stats_callback(abcd.moves, has_improved);
+                stats_callback(abcd.moves, count_distinct_colors(abcd.board), has_improved);
                 if (!has_improved)
                     return;
             }
@@ -396,18 +575,23 @@ struct ABCD
                 return;
             }
 
+            int first_move_key =
+                abcd.moves.empty() ? -1 : (abcd.moves.front().row * width + abcd.moves.front().col);
+
             auto it = visited.find(abcd.board);
             if (it != visited.end())
             {
-                if (it->second <= (int)abcd.moves.size())
+                auto& by_first_move = it->second;
+                auto it2 = by_first_move.find(first_move_key);
+                if (it2 != by_first_move.end() && it2->second <= (int)abcd.moves.size())
                 {
                     return;
                 }
-                it->second = abcd.moves.size();
+                by_first_move[first_move_key] = abcd.moves.size();
             }
             else if (visited.size() < max_visited_entries)
             {
-                visited.emplace(abcd.board, (int)abcd.moves.size());
+                visited[abcd.board][first_move_key] = abcd.moves.size();
             }
 
             for (auto [row, col] : abcd.cluster_points())
@@ -500,16 +684,21 @@ struct ABCD
     }
 };
 
-std::function<void(moves_t const&, bool&)> ABCD::stats_callback;
+std::function<void(moves_t const&, int, bool&)> ABCD::stats_callback;
 std::function<void(moves_t const&)> ABCD::result_callback;
 
 int min_move_count = std::numeric_limits<int>::max();
-moves_t min_moves = {};
+std::vector<moves_t> optimal_solutions;
 unsigned long long num_tries = 0;
 
-void display_stats(moves_t const& moves, bool& has_improved)
+void display_stats(moves_t const& moves, int lower_bound, bool& has_improved)
 {
-    has_improved = (int)moves.size() < min_move_count;
+    // Branch-and-bound: prune as soon as the best possible completion from here (current depth
+    // plus the admissible lower bound on remaining moves) can no longer match or beat the known
+    // best. Uses <= (not <) so ties at exactly min_move_count still get explored far enough to
+    // reach is_clear() and get recorded -- with strict <, DFS would silently stop reporting after
+    // the very first optimal solution found.
+    has_improved = (int)moves.size() + lower_bound <= min_move_count;
     if (!has_improved && ++num_tries % 125'000 == 0)
     {
         std::cout << "\r" << num_tries << " tries; ";
@@ -525,10 +714,15 @@ void display_result(moves_t const& moves)
     ++num_tries;
     if ((int)moves.size() < min_move_count)
     {
-        min_moves = moves;
         min_move_count = moves.size();
-        std::cout << "\rboard is clear after " << min_move_count << " moves: ";
-        for (auto const& move : min_moves)
+        optimal_solutions.clear();
+    }
+    if ((int)moves.size() == min_move_count)
+    {
+        optimal_solutions.push_back(moves);
+        std::cout << "\rboard is clear after " << min_move_count << " moves (solution #" << optimal_solutions.size()
+                   << "): ";
+        for (auto const& move : moves)
         {
             std::cout << move.row << ',' << move.col << ' ';
         }
@@ -540,6 +734,7 @@ int main(int argc, char* argv[])
 {
     bool use_dfs = false;
     bool use_bfs = false;
+    bool use_astar = false;
     if (argc > 1)
     {
         std::string arg(argv[1]);
@@ -550,6 +745,10 @@ int main(int argc, char* argv[])
         else if (arg == "--bfs")
         {
             use_bfs = true;
+        }
+        else if (arg == "--astar")
+        {
+            use_astar = true;
         }
     }
     std::string board_data;
@@ -571,9 +770,18 @@ int main(int argc, char* argv[])
     {
         abcd.solve_bfs_clustered();
     }
-    else
+    else if (use_astar)
     {
         abcd.solve_astar_clustered();
+    }
+    else
+    {
+        abcd.solve_ida_star();
+    }
+    if (!optimal_solutions.empty())
+    {
+        std::cout << optimal_solutions.size() << " optimal solution(s) of length " << min_move_count << " found."
+                   << std::endl;
     }
     return 0;
 }
