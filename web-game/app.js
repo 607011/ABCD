@@ -172,12 +172,12 @@ body {
                     div.className = cell.letter;
                     div.style.top = `${(CELL_SIZE + CELL_GAP) * row}px`;
                     div.style.left = `${(CELL_SIZE + CELL_GAP) * col}px`;
-                    div.setAttribute("data-row", row);
-                    div.setAttribute("data-col", col);
+                    div.dataset.row = row;
+                    div.dataset.col = col;
                     this._board[row][col].el = div;
                     div.addEventListener("click", e => {
-                        const row = parseInt(e.target.getAttribute("data-row"));
-                        const col = parseInt(e.target.getAttribute("data-col"));
+                        const row = parseInt(e.target.dataset.row);
+                        const col = parseInt(e.target.dataset.col);
                         this.moves.push({ row, col });
                         this.dispatchMovesChanged();
                         this.removeLetter(row, col);
@@ -216,7 +216,7 @@ body {
                         this._board[row + emptyCount][col] = this._board[row][col];
                         this._board[row][col] = { letter: EMPTY };
                         const cell = this._board[row + emptyCount][col];
-                        cell.el.setAttribute("data-row", row + emptyCount);
+                        cell.el.dataset.row = row + emptyCount;
                         cell.el.style.transitionDuration = `${(emptyCount) * 100}ms`;
                         cell.el.style.top = `${(row + emptyCount) * (CELL_SIZE + CELL_GAP)}px`;
                     }
